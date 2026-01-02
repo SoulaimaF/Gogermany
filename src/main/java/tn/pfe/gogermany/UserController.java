@@ -136,7 +136,7 @@ public ResponseEntity<?> updateUser(@PathVariable String id,
                                     @RequestBody User updatedUser,
                                     @RequestHeader("Authorization") String authHeader) {
 
-    //  Extract token
+    // 1 Extract token
     if (authHeader == null || !authHeader.startsWith("Bearer ")) {
         return ResponseEntity.status(401).body("Missing token");
     }
