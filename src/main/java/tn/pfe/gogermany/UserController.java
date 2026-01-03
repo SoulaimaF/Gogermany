@@ -87,6 +87,7 @@ public class UserController {
                 "email", user.getEmail()
         ));
     }
+
     // DELETE /users/{id} → only ADMIN can delete users
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteUser(@PathVariable String id,
@@ -130,48 +131,85 @@ public class UserController {
     }
 
 
-// PUT /users/{id} → update user (only self or admin)
-@PutMapping("/{id}")
-public ResponseEntity<?> updateUser(@PathVariable String id,
-                                    @RequestBody User updatedUser,
-                                    @RequestHeader("Authorization") String authHeader) {
+    // PUT /users/{id} → update user (only self or admin)
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateUser(@PathVariable String id,
+                                        @RequestBody User updatedUser,
+                                        @RequestHeader("Authorization") String authHeader) {
 
-    // 1 Extract token
-    if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-        return ResponseEntity.status(401).body("Missing token");
-    }
-    String token = authHeader.substring(7);
+        // 1 Extract token
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(401).body("Missing token");
+        }
+        String token = authHeader.substring(7);
 
-    if (!jwtUtil.validateToken(token)) {
-        return ResponseEntity.status(401).body("Invalid token");
-    }
-
-    // 2️⃣ Get logged-in user info
-    String email = jwtUtil.getEmailFromToken(token);
-    String role = jwtUtil.extractClaims(token).get("role", String.class);
-
-    // 3️⃣ Find the user to update
-    return userRepository.findById(id).map(user -> {
-
-        // 4️⃣ Only self or ADMIN can update
-        if (!user.getEmail().equals(email) && !"ADMIN".equals(role)) {
-            return ResponseEntity.status(403).body("Forbidden: You can only update your own account");
+        if (!jwtUtil.validateToken(token)) {
+            return ResponseEntity.status(401).body("Invalid token");
         }
 
-        // 5️⃣ Update allowed fields
-        user.setFirstName(updatedUser.getFirstName());
-        user.setLastName(updatedUser.getLastName());
-        user.setPhone(updatedUser.getPhone());
-        user.setAddress(updatedUser.getAddress());
+        // 2️⃣ Get logged-in user info
+        String email = jwtUtil.getEmailFromToken(token);
+        String role = jwtUtil.extractClaims(token).get("role", String.class);
 
-        // 6️⃣ Update password if provided
-        if (updatedUser.getPassword() != null && !updatedUser.getPassword().isBlank()) {
-            user.setPassword(passwordEncoder.encode(updatedUser.getPassword()));
+        // 3️⃣ Find the user to update
+        return userRepository.findById(id).map(user -> {
+
+            // 4️⃣ Only self or ADMIN can update
+            if (!user.getEmail().equals(email) && !"ADMIN".equals(role)) {
+                return ResponseEntity.status(403).body("Forbidden: You can only update your own account");
+            }
+
+            // 5️⃣ Update allowed fields
+            user.setFirstName(updatedUser.getFirstName());
+            user.setLastName(updatedUser.getLastName());
+            user.setPhone(updatedUser.getPhone());
+            user.setAddress(updatedUser.getAddress());
+
+            // 6️⃣ Update password if provided
+            if (updatedUser.getPassword() != null && !updatedUser.getPassword().isBlank()) {
+                user.setPassword(passwordEncoder.encode(updatedUser.getPassword()));
+            }
+
+            userRepository.save(user);
+            return ResponseEntity.ok(user);
+
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    // PUT /users/{id}/change-password → logged-in user only
+    @PutMapping("/{id}/change-password")
+    public ResponseEntity<?> changePassword(@PathVariable String id,
+                                            @RequestBody Map<String, String> body,
+                                            @RequestHeader("Authorization") String authHeader) {
+
+        String newPassword = body.get("newPassword");
+        if (newPassword == null || newPassword.isBlank()) {
+            return ResponseEntity.badRequest().body("New password is required");
         }
 
-        userRepository.save(user);
-        return ResponseEntity.ok(user);
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(401).body("Missing token");
+        }
 
-    }).orElse(ResponseEntity.notFound().build());
-}
+        String token = authHeader.substring(7);
+        if (!jwtUtil.validateToken(token)) {
+            return ResponseEntity.status(401).body("Invalid token");
+        }
+
+        String emailFromToken = jwtUtil.getEmailFromToken(token);
+        String role = jwtUtil.extractClaims(token).get("role", String.class);
+
+        return userRepository.findById(id).map(user -> {
+
+            // Only self or ADMIN can change password
+            if (!user.getEmail().equals(emailFromToken) && !"ADMIN".equals(role)) {
+                return ResponseEntity.status(403).body("Forbidden: cannot change password for another user");
+            }
+
+            user.setPassword(passwordEncoder.encode(newPassword));
+            userRepository.save(user);
+
+            return ResponseEntity.ok("Password updated successfully");
+        }).orElse(ResponseEntity.notFound().build());
+    }
 }
